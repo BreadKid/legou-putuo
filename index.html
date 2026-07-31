@@ -22,7 +22,7 @@
   .g-body { display: none; border-top: 1px solid #f0f0f0; }
   .group.open .g-body { display: block; }
   .g-row { display: flex; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f5f5f5;
-           align-items: center; font-size: 14px; }
+           align-items: center; font-size: 14px; cursor: pointer; }
   .g-row:last-child { border-bottom: none; }
   .g-row img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; cursor: zoom-in; }
   .g-row .gm { flex: 1; min-width: 0; }
@@ -48,6 +48,11 @@
   .del { flex-shrink: 0; width: 36px; height: 36px; border: none; border-radius: 50%;
          background: #ff3b30; color: #fff; font-size: 18px; }
 
+  .item.flash { animation: flash 1.2s; }
+  @keyframes flash {
+    0%, 60% { background: #fff3cd; }
+    100% { background: #fff; }
+  }
   #bottom { position: fixed; left: 0; right: 0; bottom: 0; background: #fff;
             border-top: 1px solid #e5e5e5; padding: 10px 16px 14px;
             display: flex; flex-direction: column; gap: 8px; }
@@ -237,7 +242,7 @@ function renderGroups() {
       row.className = 'g-row';
       const img = document.createElement('img');
       img.src = it.thumb;
-      img.onclick = () => showFull(it.full);
+      img.onclick = (e) => { e.stopPropagation(); showFull(it.full); };
       const gm = document.createElement('div');
       gm.className = 'gm';
       const line = it.price * it.qty;
@@ -247,6 +252,7 @@ function renderGroups() {
       gt.className = 'gt';
       gt.textContent = `¥${line.toFixed(2)}`;
       row.append(img, gm, gt);
+      row.onclick = () => jumpToItem(items.indexOf(it));
       body.appendChild(row);
     });
     if (!body.children.length) {
@@ -266,6 +272,7 @@ function renderList() {
   items.forEach((it, i) => {
     const row = document.createElement('div');
     row.className = 'item';
+    row.dataset.idx = i;
 
     const img = document.createElement('img');
     img.src = it.thumb;
@@ -345,6 +352,15 @@ function showFull(src) {
   viewer.style.display = 'flex';
 }
 viewer.onclick = () => { viewer.style.display = 'none'; };
+
+function jumpToItem(i) {
+  const row = listEl.querySelector(`.item[data-idx="${i}"]`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.remove('flash');
+  void row.offsetWidth; // 强制 reflow 让动画可重复触发
+  row.classList.add('flash');
+}
 
 render();
 </script>
