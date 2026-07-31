@@ -383,7 +383,7 @@
 
   <div id="listHeader"><span class="t">总列表（修改后分组清空）</span></div>
   <div id="list"></div>
-  <div id="empty">点底部按钮拍照添加商品</div>
+  <div id="empty">改人数 ──▶ +商品拍照 ──▶ 填单价 ──▶ 调数量 ──▶ 点「分组」</div>
 
   <div id="groups"></div>
 
@@ -569,10 +569,6 @@
 
     function renderGroups() {
       groupsEl.innerHTML = '';
-      if (!lastGroups) {
-        groupsEl.innerHTML = '<div style="text-align:center;color:#bbb;padding:20px 0;font-size:14px">点下方"分组"按钮生成分组</div>';
-        return;
-      }
       lastGroups.forEach((g, gi) => {
         const amount = g.amount;
         const disc = discountOf(amount);
