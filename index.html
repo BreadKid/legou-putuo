@@ -224,7 +224,6 @@ function renderGroups() {
   groups.forEach((g, gi) => {
     const amount = g.amount;
     const disc   = discountOf(amount);
-    const net    = amount - disc;
     const totalQty = [...g.members.values()].reduce((a, b) => a + b, 0);
     const gnum = gi + 1;
 
@@ -239,7 +238,7 @@ function renderGroups() {
     else                   { statusCls = 'warn'; statusTxt = `差 ¥${(100 - amount).toFixed(2)} 到 100，无优惠`; }
     head.innerHTML = `
       <span class="label">组 ${gnum}</span>
-      <span class="stat">${totalQty} 件 · 小计 ¥${amount.toFixed(2)} · 实付 ¥${net.toFixed(2)}</span>
+      <span class="stat">${totalQty} 件 · 总计 ¥${amount.toFixed(2)} · 优惠 ¥${disc.toFixed(2)}</span>
       <span class="${statusCls}">${statusTxt}</span>
       <span class="arrow">▶</span>`;
     if (amount > 300) {
