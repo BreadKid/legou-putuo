@@ -188,41 +188,29 @@ function discountOf(amount) {
   return 0;
 }
 
-// 自动分组:
-//  1) Best Fit Decreasing: 单件按价降序, 每件放进"超额最少 / 最接近300"的未封箱组
-//  2) 尾组清理: <100 的零散组拆掉, 单件 LPT 均摊到其他组
-//  3) people 上限: 组数超 people 时, 拆掉最小金额的组, 单件 LPT 均摊
-// 未填价 (price<=0) 不参与分组
-// 返回: [{amount, members: Map<itemIdx, count>}]
-function autoGroup() {
-  const units = [];
-  items.forEach((it, idx) => {
-    if (!(it.price > 0)) return;
-    for (let k = 0; k < it.qty; k++) units.push({ idx, price: it.price });
-  });
+// 纯函数: 分组算法核心, 不依赖外部状态
+// units: [{id, price}] 按单件展开 (每件一个对象, price>0 已过滤)
+// 返回: [{amount, members: Map<id, count>}]
+function computeGroups(units, people) {
   units.sort((a, b) => b.price - a.price);
   if (!units.length) return [];
 
   // --- Step 1: Best Fit - 最小化 |after - 300| ---
-  // 评分: 每个候选(放入某组 或 开新组)算"金额与300的偏差", 选最小
-  // 效果: 刚好300最优; 能让组触达300且超额少 > 让组逼近300 > 开新组
   const groups = [];
   for (const u of units) {
     let bestGi = -1, bestScore = Infinity;
     for (let i = 0; i < groups.length; i++) {
       if (groups[i].sealed) continue;
-      const after = groups[i].amount + u.price;
-      const score = Math.abs(after - 300);
+      const score = Math.abs(groups[i].amount + u.price - 300);
       if (score < bestScore) { bestScore = score; bestGi = i; }
     }
-    // 候选: 开新组
-    const newScore = Math.abs(u.price - 300) + 0.5; // +0.5 tie-break 偏向已有组
+    const newScore = Math.abs(u.price - 300) + 0.5;
     if (newScore < bestScore) {
-      groups.push({ amount: u.price, members: new Map([[u.idx, 1]]), sealed: u.price >= 300 });
+      groups.push({ amount: u.price, members: new Map([[u.id, 1]]), sealed: u.price >= 300 });
     } else {
       const g = groups[bestGi];
       g.amount += u.price;
-      g.members.set(u.idx, (g.members.get(u.idx) || 0) + 1);
+      g.members.set(u.id, (g.members.get(u.id) || 0) + 1);
       if (g.amount >= 300) g.sealed = true;
     }
   }
@@ -231,45 +219,55 @@ function autoGroup() {
   const tails = groups.filter(g => g.amount < 100);
   const keep  = groups.filter(g => g.amount >= 100);
   if (tails.length && keep.length) {
-    // 拆开所有尾组单件, 按价降序
     const spill = [];
     for (const t of tails) {
-      for (const [idx, cnt] of t.members) {
-        for (let k = 0; k < cnt; k++) spill.push({ idx, price: items[idx].price });
+      for (const [id, cnt] of t.members) {
+        // 从 units 中找回该 id 的价格 (取第一条)
+        const price = units.find(u => u.id === id).price;
+        for (let k = 0; k < cnt; k++) spill.push({ id, price });
       }
     }
     spill.sort((a, b) => b.price - a.price);
-    // LPT: 每件放到当前最小金额的 keep 组
     for (const u of spill) {
       let minG = keep[0];
       for (const g of keep) if (g.amount < minG.amount) minG = g;
       minG.amount += u.price;
-      minG.members.set(u.idx, (minG.members.get(u.idx) || 0) + 1);
+      minG.members.set(u.id, (minG.members.get(u.id) || 0) + 1);
     }
   }
   let result = keep.length ? keep : tails;
 
   // --- Step 3: people 上限 ---
   while (result.length > people && result.length > 1) {
-    // 找最小金额的组拆掉
     let minGi = 0;
     for (let i = 1; i < result.length; i++) {
       if (result[i].amount < result[minGi].amount) minGi = i;
     }
     const removed = result.splice(minGi, 1)[0];
     const spill = [];
-    for (const [idx, cnt] of removed.members) {
-      for (let k = 0; k < cnt; k++) spill.push({ idx, price: items[idx].price });
+    for (const [id, cnt] of removed.members) {
+      const price = units.find(u => u.id === id).price;
+      for (let k = 0; k < cnt; k++) spill.push({ id, price });
     }
     spill.sort((a, b) => b.price - a.price);
     for (const u of spill) {
       let minG = result[0];
       for (const g of result) if (g.amount < minG.amount) minG = g;
       minG.amount += u.price;
-      minG.members.set(u.idx, (minG.members.get(u.idx) || 0) + 1);
+      minG.members.set(u.id, (minG.members.get(u.id) || 0) + 1);
     }
   }
   return result;
+}
+
+// 胶水: 从全局 items/people 组装数据, 调纯函数
+function autoGroup() {
+  const units = [];
+  items.forEach((it, idx) => {
+    if (!(it.price > 0)) return;
+    for (let k = 0; k < it.qty; k++) units.push({ id: idx, price: it.price });
+  });
+  return computeGroups(units, people);
 }
 
 function render() {
@@ -436,47 +434,32 @@ function jumpToItem(i) {
 render();
 
 // ---- 单元测试 (浏览器控制台执行 runTests()) ----
+// 直接调纯函数 computeGroups, 不碰全局状态
 window.runTests = () => {
-  const savedItems = items;
-  const savedPeople = people;
-
-  function discountOf(a) {
-    if (a >= 300) return 45;
-    if (a >= 200) return 30;
-    if (a >= 100) return 15;
-    return 0;
-  }
-
-  // 用独立数据跑分组, 返回 {groups, save, gross}
-  function testAutoGroup(priceQtyPairs, p) {
-    items = [];
-    priceQtyPairs.forEach(([price, qty]) => {
-      items.push({ price, qty, thumb: null, full: null });
-    });
-    people = p;
-    const groups = autoGroup();
-    const save = groups.reduce((a, g) => a + discountOf(g.amount), 0);
-    const gross = priceQtyPairs.reduce((s, [price, qty]) => s + (price > 0 ? price * qty : 0), 0);
-    return { groups, save, gross };
-  }
-
   const cases = [
     // [name, priceQtyPairs, people, expectedSave, expectedGross]
-    ['反例 [238,238,65,49,49,99] people=6', [[238,2],[65,1],[49,2],[99,1]], 6, 90, 738],
-    ['反例 [238,238,65,49,49,99] people=2', [[238,2],[65,1],[49,2],[99,1]], 2, 90, 738],
-    ['600 people=2',   [[300,1],[300,1]],  2, 90, 600],
-    ['350x3 people=2', [[350,3]],          2, 90, 1050],
-    ['80x5',           [[80,5]],           5, 45, 400],
-    ['280+50',         [[280,1],[50,1]],   5, 45, 330],
-    ['100x10',         [[100,10]],         5, 150, 1000],
+    ['反例 [238,238,65,49,49,99] p=6', [[238,2],[65,1],[49,2],[99,1]], 6, 90, 738],
+    ['反例 [238,238,65,49,49,99] p=2', [[238,2],[65,1],[49,2],[99,1]], 2, 90, 738],
+    ['600 p=2',   [[300,1],[300,1]],  2, 90, 600],
+    ['350x3 p=2', [[350,3]],          2, 90, 1050],
+    ['80x5',      [[80,5]],           5, 45, 400],
+    ['280+50',    [[280,1],[50,1]],   5, 45, 330],
+    ['100x10',    [[100,10]],         5, 150, 1000],
     ['100x2+200+350 p=2', [[100,2],[200,1],[350,1]], 2, 90, 750],
-    ['未填价跳过',      [[0,5],[300,1]],    5, 45, 300],
+    ['未填价跳过', [[0,5],[300,1]],   5, 45, 300],
   ];
 
   let pass = 0, fail = 0;
   console.log('=== 分组算法单元测试 ===\n');
   for (const [name, pairs, p, expSave, expGross] of cases) {
-    const { groups, save, gross } = testAutoGroup(pairs, p);
+    // 展开为单件 units, 跳过 price<=0
+    const units = [];
+    pairs.forEach(([price, qty], id) => {
+      if (price > 0) for (let k = 0; k < qty; k++) units.push({ id, price });
+    });
+    const groups = computeGroups(units, p);
+    const save = groups.reduce((a, g) => a + discountOf(g.amount), 0);
+    const gross = pairs.reduce((s, [price, qty]) => s + (price > 0 ? price * qty : 0), 0);
     const ok = save === expSave && gross === expGross;
     console.log(`${ok ? '✅' : '❌'} ${name}`);
     if (!ok) {
@@ -490,9 +473,6 @@ window.runTests = () => {
     }
   }
   console.log(`\n${pass} 通过, ${fail} 失败`);
-
-  items = savedItems;
-  people = savedPeople;
   return { pass, fail };
 };
 </script>
