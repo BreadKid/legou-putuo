@@ -11,9 +11,9 @@
   #groups { margin: 10px 0 14px; }
   .group { background: #fff; border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
   .g-head { padding: 12px 14px; display: flex; align-items: center; gap: 8px;
-            font-size: 15px; cursor: pointer; }
+            font-size: 15px; cursor: pointer; flex-wrap: wrap; }
   .g-head .label { font-weight: 600; }
-  .g-head .stat { flex: 1; color: #666; font-size: 13px; }
+  .g-head .stat { flex: 1; color: #666; font-size: 13px; min-width: 0; }
   .g-head .warn { color: #d97706; font-size: 12px; }
   .g-head .bad  { color: #dc2626; font-size: 12px; }
   .g-head .ok   { color: #059669; font-size: 12px; }
@@ -43,8 +43,6 @@
   .qty button { width: 32px; height: 32px; border: 1px solid #ddd; border-radius: 6px;
                 background: #f7f7f7; font-size: 18px; line-height: 1; }
   .qty .n { min-width: 28px; text-align: center; font-size: 17px; font-weight: 600; }
-  .badge { margin-top: 6px; font-size: 12px; color: #576b95; background: #eef1f6;
-           padding: 3px 10px; border-radius: 10px; border: 1px solid #dde3ee; }
   .del { flex-shrink: 0; width: 36px; height: 36px; border: none; border-radius: 50%;
          background: #ff3b30; color: #fff; font-size: 18px; }
 
@@ -77,7 +75,7 @@
 
 <div id="groups"></div>
 
-<div id="listHeader"><span class="t">总列表（价格/数量/归组在此修改）</span></div>
+<div id="listHeader"><span class="t">总列表（修改后自动重新分组）</span></div>
 <div id="list"></div>
 <div id="empty">点底部按钮拍照添加商品</div>
 
@@ -111,11 +109,9 @@ const pNumEl   = document.getElementById('pNum');
 
 const MAX_EDGE = 1600, QUALITY = 0.8;
 
-// people: 可用优惠额度（几张会员卡/几人次）
-// items[]: {thumb, full, price, qty, group ∈ 1..people}
 let people = 1;
-let items = [];
-let openGroups = new Set(); // 记住哪些组面板展开着
+let items = []; // {thumb, full, price, qty}
+let openGroups = new Set();
 
 document.getElementById('addBtn').onclick = () => camera.click();
 document.getElementById('pMinus').onclick = () => setPeople(people - 1);
@@ -123,13 +119,8 @@ document.getElementById('pPlus').onclick  = () => setPeople(people + 1);
 
 function setPeople(n) {
   if (n < 1) return;
-  // 不能减到比"当前有商品的最大组号"还小
-  const maxUsed = items.reduce((m, it) => Math.max(m, it.group), 0);
-  if (n < maxUsed) {
-    alert(`组 ${maxUsed} 还有商品，先在总列表把它们挪走`);
-    return;
-  }
   people = n;
+  openGroups.clear();
   render();
 }
 
@@ -143,7 +134,7 @@ camera.onchange = async () => {
   const full = blobUrl(img, w * scale, h * scale, QUALITY);
   const tScale = Math.min(scale, 300 / Math.max(w, h));
   const thumb = blobUrl(img, w * tScale, h * tScale, 0.7);
-  items.push({ thumb, full, price: 0, qty: 1, group: 1 });
+  items.push({ thumb, full, price: 0, qty: 1 });
   render();
 };
 
@@ -173,7 +164,6 @@ function dataURItoBlob(dataURI) {
   return new Blob([arr], { type: mime });
 }
 
-// 每组优惠额: <100 → 0; 100-199 → 15; 200-299 → 30; ≥300 → 45
 function discountOf(amount) {
   if (amount >= 300) return 45;
   if (amount >= 200) return 30;
@@ -181,14 +171,43 @@ function discountOf(amount) {
   return 0;
 }
 
-function groupTotals() {
-  const sums = new Array(people).fill(0);
-  const counts = new Array(people).fill(0);
-  for (const it of items) {
-    sums[it.group - 1] += it.price * it.qty;
-    counts[it.group - 1] += it.qty;
+// 自动分组: 贪心"单人优惠最大化"
+// 单件展开, 按价从大到小, 当前组装到 ≥300 就封箱开新组;
+// 否则若加入能让组升档或保持在 <300 内继续逼近, 就放
+// 返回: 数组 of 组, 每组是 [{itemIdx, count}]
+function autoGroup() {
+  // 展开单件
+  const units = [];
+  items.forEach((it, idx) => {
+    for (let k = 0; k < it.qty; k++) units.push({ idx, price: it.price });
+  });
+  units.sort((a, b) => b.price - a.price);
+
+  const groups = []; // [{amount, members: Map<itemIdx, count>}]
+  let cur = { amount: 0, members: new Map() };
+
+  for (const u of units) {
+    const newAmt = cur.amount + u.price;
+    // 规则: 放进去让组升档 (discount 增加) 或者还没满 300 且不会跳到 >300
+    // 简化: 只要 newAmt <= 300 就放; 如果 newAmt > 300:
+    //   若 cur.amount 已 >= 300 -> 封箱开新组, u 进新组
+    //   否则 (cur.amount < 300, newAmt > 300) -> 放, 满档封箱
+    if (cur.amount >= 300) {
+      groups.push(cur);
+      cur = { amount: u.price, members: new Map([[u.idx, 1]]) };
+      continue;
+    }
+    if (newAmt <= 300) {
+      cur.amount = newAmt;
+      cur.members.set(u.idx, (cur.members.get(u.idx) || 0) + 1);
+    } else {
+      // newAmt > 300, cur.amount < 300: 放进去满档 (减 45)
+      cur.amount = newAmt;
+      cur.members.set(u.idx, (cur.members.get(u.idx) || 0) + 1);
+    }
   }
-  return { sums, counts };
+  if (cur.amount > 0 || cur.members.size > 0) groups.push(cur);
+  return groups;
 }
 
 function render() {
@@ -200,27 +219,27 @@ function render() {
 }
 
 function renderGroups() {
-  const { sums, counts } = groupTotals();
+  const groups = autoGroup();
   groupsEl.innerHTML = '';
-  for (let g = 1; g <= people; g++) {
-    const amount = sums[g - 1];
-    const cnt    = counts[g - 1];
+  groups.forEach((g, gi) => {
+    const amount = g.amount;
     const disc   = discountOf(amount);
     const net    = amount - disc;
+    const totalQty = [...g.members.values()].reduce((a, b) => a + b, 0);
+    const gnum = gi + 1;
 
     const box = document.createElement('div');
-    box.className = 'group' + (openGroups.has(g) ? ' open' : '');
+    box.className = 'group' + (openGroups.has(gnum) ? ' open' : '');
 
     const head = document.createElement('div');
     head.className = 'g-head';
     let statusCls, statusTxt;
     if (amount >= 300)     { statusCls = 'ok';   statusTxt = `减 ¥${disc}（已满档）`; }
     else if (amount >= 100){ statusCls = 'ok';   statusTxt = `减 ¥${disc}`; }
-    else if (amount > 0)   { statusCls = 'warn'; statusTxt = `差 ¥${(100 - amount).toFixed(2)} 到 100，无优惠`; }
-    else                   { statusCls = 'warn'; statusTxt = '空'; }
+    else                   { statusCls = 'warn'; statusTxt = `差 ¥${(100 - amount).toFixed(2)} 到 100，无优惠`; }
     head.innerHTML = `
-      <span class="label">组 ${g}</span>
-      <span class="stat">${cnt} 件 · 小计 ¥${amount.toFixed(2)} · 实付 ¥${net.toFixed(2)}</span>
+      <span class="label">组 ${gnum}</span>
+      <span class="stat">${totalQty} 件 · 小计 ¥${amount.toFixed(2)} · 实付 ¥${net.toFixed(2)}</span>
       <span class="${statusCls}">${statusTxt}</span>
       <span class="arrow">▶</span>`;
     if (amount > 300) {
@@ -230,14 +249,14 @@ function renderGroups() {
       head.insertBefore(warn, head.lastElementChild);
     }
     head.onclick = () => {
-      openGroups.has(g) ? openGroups.delete(g) : openGroups.add(g);
+      openGroups.has(gnum) ? openGroups.delete(gnum) : openGroups.add(gnum);
       box.classList.toggle('open');
     };
 
     const body = document.createElement('div');
     body.className = 'g-body';
-    items.forEach((it) => {
-      if (it.group !== g) return;
+    for (const [idx, count] of g.members) {
+      const it = items[idx];
       const row = document.createElement('div');
       row.className = 'g-row';
       const img = document.createElement('img');
@@ -245,26 +264,20 @@ function renderGroups() {
       img.onclick = (e) => { e.stopPropagation(); showFull(it.full); };
       const gm = document.createElement('div');
       gm.className = 'gm';
-      const line = it.price * it.qty;
-      gm.innerHTML = `<div class="gidx">#${items.indexOf(it) + 1}</div>
-                      <div class="gp">¥${it.price.toFixed(2)} × ${it.qty}</div>`;
+      const line = it.price * count;
+      gm.innerHTML = `<div class="gidx">#${idx + 1}</div>
+                      <div class="gp">¥${it.price.toFixed(2)} × ${count}（本组）</div>`;
       const gt = document.createElement('div');
       gt.className = 'gt';
       gt.textContent = `¥${line.toFixed(2)}`;
       row.append(img, gm, gt);
-      row.onclick = () => jumpToItem(items.indexOf(it));
+      row.onclick = () => jumpToItem(idx);
       body.appendChild(row);
-    });
-    if (!body.children.length) {
-      const r = document.createElement('div');
-      r.className = 'g-row';
-      r.innerHTML = '<div class="gidx" style="color:#bbb">暂无商品，回总列表给商品点"组 i"切换归组</div>';
-      body.appendChild(r);
     }
 
     box.append(head, body);
     groupsEl.appendChild(box);
-  }
+  });
 }
 
 function renderList() {
@@ -304,18 +317,6 @@ function renderList() {
     qty.append(minus, n, plus);
     mid.appendChild(qty);
 
-    if (people > 1) {
-      const badge = document.createElement('button');
-      badge.className = 'badge';
-      badge.textContent = `组 ${it.group}`;
-      badge.onclick = () => {
-        it.group = it.group >= people ? 1 : it.group + 1;
-        badge.textContent = `组 ${it.group}`;
-        refreshNumbers();
-      };
-      mid.appendChild(badge);
-    }
-
     const del = document.createElement('button');
     del.className = 'del';
     del.textContent = '×';
@@ -331,16 +332,15 @@ function renderList() {
   });
 }
 
-// 轻量刷新: 只更新组面板 + 底部汇总, 不重建总列表 DOM (避免输入框丢焦点)
 function refreshNumbers() {
   renderGroups();
   updateSummary();
 }
 
 function updateSummary() {
-  const { sums } = groupTotals();
-  const gross = sums.reduce((a, b) => a + b, 0);
-  const save  = sums.reduce((a, b) => a + discountOf(b), 0);
+  const groups = autoGroup();
+  const gross = groups.reduce((a, g) => a + g.amount, 0);
+  const save  = groups.reduce((a, g) => a + discountOf(g.amount), 0);
   const net   = gross - save;
   document.getElementById('gross').textContent = `货值 ¥${gross.toFixed(2)}`;
   document.getElementById('save').textContent  = `共省 ¥${save.toFixed(2)}`;
@@ -358,7 +358,7 @@ function jumpToItem(i) {
   if (!row) return;
   row.scrollIntoView({ behavior: 'smooth', block: 'center' });
   row.classList.remove('flash');
-  void row.offsetWidth; // 强制 reflow 让动画可重复触发
+  void row.offsetWidth;
   row.classList.add('flash');
 }
 
