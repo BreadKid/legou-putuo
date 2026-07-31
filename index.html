@@ -326,10 +326,18 @@
     }
 
     #empty {
-      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
       color: #aaa;
       margin-top: 40px;
       font-size: 15px;
+    }
+
+    #empty .arrow {
+      color: #ccc;
+      font-size: 13px;
     }
 
     #viewer {
@@ -383,7 +391,17 @@
 
   <div id="listHeader"><span class="t">总列表（修改后分组清空）</span></div>
   <div id="list"></div>
-  <div id="empty">改人数 ──▶ +商品拍照 ──▶ 填单价 ──▶ 调数量 ──▶ 点「分组」</div>
+  <div id="empty">
+    <span class="step">改人数</span>
+    <span class="arrow">▼</span>
+    <span class="step">+商品拍照</span>
+    <span class="arrow">▼</span>
+    <span class="step">填单价</span>
+    <span class="arrow">▼</span>
+    <span class="step">调数量</span>
+    <span class="arrow">▼</span>
+    <span class="step">点「分组」刷新（每次点击重新计算）</span>
+  </div>
 
   <div id="groups"></div>
 
