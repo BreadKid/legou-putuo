@@ -188,48 +188,88 @@ function discountOf(amount) {
   return 0;
 }
 
-// 自动分组: 贪心"单人优惠最大化", 受 people 上限约束
-// 单件展开, 按价从大到小, 当前组装到 ≥300 就封箱开新组
-// price<=0 的商品不参与分组
-// 返回: 数组 of 组, 每组是 [{amount, members: Map<itemIdx, count>}]
+// 自动分组:
+//  1) Best Fit Decreasing: 单件按价降序, 每件放进"超额最少 / 最接近300"的未封箱组
+//  2) 尾组清理: <100 的零散组拆掉, 单件 LPT 均摊到其他组
+//  3) people 上限: 组数超 people 时, 拆掉最小金额的组, 单件 LPT 均摊
+// 未填价 (price<=0) 不参与分组
+// 返回: [{amount, members: Map<itemIdx, count>}]
 function autoGroup() {
-  // 展开单件, 跳过未填价
   const units = [];
   items.forEach((it, idx) => {
     if (!(it.price > 0)) return;
     for (let k = 0; k < it.qty; k++) units.push({ idx, price: it.price });
   });
   units.sort((a, b) => b.price - a.price);
+  if (!units.length) return [];
 
+  // --- Step 1: Best Fit - 最小化 |after - 300| ---
+  // 评分: 每个候选(放入某组 或 开新组)算"金额与300的偏差", 选最小
+  // 效果: 刚好300最优; 能让组触达300且超额少 > 让组逼近300 > 开新组
   const groups = [];
-  let cur = { amount: 0, members: new Map() };
-
   for (const u of units) {
-    const newAmt = cur.amount + u.price;
-    if (cur.amount >= 300) {
-      groups.push(cur);
-      cur = { amount: u.price, members: new Map([[u.idx, 1]]) };
-      continue;
+    let bestGi = -1, bestScore = Infinity;
+    for (let i = 0; i < groups.length; i++) {
+      if (groups[i].sealed) continue;
+      const after = groups[i].amount + u.price;
+      const score = Math.abs(after - 300);
+      if (score < bestScore) { bestScore = score; bestGi = i; }
     }
-    cur.amount = newAmt;
-    cur.members.set(u.idx, (cur.members.get(u.idx) || 0) + 1);
+    // 候选: 开新组
+    const newScore = Math.abs(u.price - 300) + 0.5; // +0.5 tie-break 偏向已有组
+    if (newScore < bestScore) {
+      groups.push({ amount: u.price, members: new Map([[u.idx, 1]]), sealed: u.price >= 300 });
+    } else {
+      const g = groups[bestGi];
+      g.amount += u.price;
+      g.members.set(u.idx, (g.members.get(u.idx) || 0) + 1);
+      if (g.amount >= 300) g.sealed = true;
+    }
   }
-  if (cur.amount > 0 || cur.members.size > 0) groups.push(cur);
 
-  // people 上限: 超出部分的组, 商品并回前 people 组里货值最小的
-  while (groups.length > people && groups.length > 1) {
-    const tail = groups.pop();
-    let minGi = 0;
-    for (let i = 1; i < groups.length; i++) {
-      if (groups[i].amount < groups[minGi].amount) minGi = i;
+  // --- Step 2: 尾组清理 (<100 拆掉均摊) ---
+  const tails = groups.filter(g => g.amount < 100);
+  const keep  = groups.filter(g => g.amount >= 100);
+  if (tails.length && keep.length) {
+    // 拆开所有尾组单件, 按价降序
+    const spill = [];
+    for (const t of tails) {
+      for (const [idx, cnt] of t.members) {
+        for (let k = 0; k < cnt; k++) spill.push({ idx, price: items[idx].price });
+      }
     }
-    const target = groups[minGi];
-    target.amount += tail.amount;
-    for (const [idx, cnt] of tail.members) {
-      target.members.set(idx, (target.members.get(idx) || 0) + cnt);
+    spill.sort((a, b) => b.price - a.price);
+    // LPT: 每件放到当前最小金额的 keep 组
+    for (const u of spill) {
+      let minG = keep[0];
+      for (const g of keep) if (g.amount < minG.amount) minG = g;
+      minG.amount += u.price;
+      minG.members.set(u.idx, (minG.members.get(u.idx) || 0) + 1);
     }
   }
-  return groups;
+  let result = keep.length ? keep : tails;
+
+  // --- Step 3: people 上限 ---
+  while (result.length > people && result.length > 1) {
+    // 找最小金额的组拆掉
+    let minGi = 0;
+    for (let i = 1; i < result.length; i++) {
+      if (result[i].amount < result[minGi].amount) minGi = i;
+    }
+    const removed = result.splice(minGi, 1)[0];
+    const spill = [];
+    for (const [idx, cnt] of removed.members) {
+      for (let k = 0; k < cnt; k++) spill.push({ idx, price: items[idx].price });
+    }
+    spill.sort((a, b) => b.price - a.price);
+    for (const u of spill) {
+      let minG = result[0];
+      for (const g of result) if (g.amount < minG.amount) minG = g;
+      minG.amount += u.price;
+      minG.members.set(u.idx, (minG.members.get(u.idx) || 0) + 1);
+    }
+  }
+  return result;
 }
 
 function render() {
