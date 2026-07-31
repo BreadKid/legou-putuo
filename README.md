@@ -8,7 +8,7 @@
 
 ## 快速上手
 
-浏览器打开 `https://legouputuo.breadykid.com`，手机 Chrome/Safari 均可。
+浏览器打开 [legouputuo.breadykid.com](https://legouputuo.breadykid.com)，手机 Chrome/Safari 均可。
 
 ```text
 改人数  ──▶  +商品拍照  ──▶  填单价  ──▶  调数量  ──▶  点「分组」
