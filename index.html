@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>山姆羊毛清单</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", sans-serif; background: #f5f5f5; padding-bottom: 120px; }
+  #list { padding: 12px; }
+  .item { display: flex; gap: 10px; background: #fff; border-radius: 10px;
+          padding: 10px; margin-bottom: 10px; align-items: center; }
+  .item img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; flex-shrink: 0; cursor: zoom-in; }
+  .mid { flex: 1; min-width: 0; }
+  .mid .idx { font-size: 12px; color: #999; margin-bottom: 4px; }
+  .price-input { width: 100%; font-size: 18px; padding: 8px 10px;
+                 border: 1px solid #ddd; border-radius: 6px; }
+  .del { flex-shrink: 0; width: 36px; height: 36px; border: none; border-radius: 50%;
+         background: #ff3b30; color: #fff; font-size: 18px; }
+  #bottom { position: fixed; left: 0; right: 0; bottom: 0; background: #fff;
+            border-top: 1px solid #e5e5e5; padding: 12px 16px;
+            display: flex; align-items: center; gap: 14px; }
+  #total { flex: 1; font-size: 20px; font-weight: 600; }
+  #addBtn { background: #07c160; color: #fff; border: none; border-radius: 8px;
+            font-size: 18px; padding: 12px 24px; }
+  #empty { text-align: center; color: #aaa; margin-top: 60px; font-size: 15px; }
+  #viewer { position: fixed; inset: 0; background: rgba(0,0,0,.9); display: none;
+            align-items: center; justify-content: center; z-index: 10; }
+  #viewer img { max-width: 100%; max-height: 100%; }
+</style>
+</head>
+<body>
+
+<div id="list"></div>
+<div id="empty">点底部按钮拍照添加商品</div>
+
+<div id="bottom">
+  <div id="total">总计 ¥0.00</div>
+  <button id="addBtn">＋ 拍照</button>
+</div>
+<input type="file" id="camera" accept="image/*" capture="environment" hidden>
+
+<div id="viewer"><img alt=""></div>
+
+<script>
+const listEl  = document.getElementById('list');
+const emptyEl = document.getElementById('empty');
+const totalEl = document.getElementById('total');
+const camera  = document.getElementById('camera');
+const viewer  = document.getElementById('viewer');
+
+// 拍照压缩到最长边 1600px, JPEG 0.8 —— 原图 3-5MB, 压完 ~100KB, 防爆内存
+const MAX_EDGE = 1600, QUALITY = 0.8;
+
+let items = []; // {thumb: blobUrl, full: blobUrl, price: number}
+
+document.getElementById('addBtn').onclick = () => camera.click();
+
+camera.onchange = async () => {
+  const file = camera.files[0];
+  camera.value = '';
+  if (!file) return;
+  const img = await loadImage(file);
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+  // full 尺寸: 点开大图查看
+  const full = blobUrl(img, w * scale, h * scale, QUALITY);
+  // thumb: 列表缩略图, 300px 足够
+  const tScale = Math.min(scale, 300 / Math.max(w, h));
+  const thumb = blobUrl(img, w * tScale, h * tScale, 0.7);
+  items.push({ thumb, full, price: 0 });
+  render();
+};
+
+function loadImage(file) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(img.src); res(img); };
+    img.onerror = rej;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function blobUrl(img, w, h, q) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(w); c.height = Math.round(h);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return URL.createObjectURL(
+    dataURItoBlob(c.toDataURL('image/jpeg', q)));
+}
+
+function dataURItoBlob(dataURI) {
+  const [head, body] = dataURI.split(',');
+  const mime = head.match(/:(.*?);/)[1];
+  const bin = atob(body);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+function render() {
+  emptyEl.style.display = items.length ? 'none' : '';
+  listEl.innerHTML = '';
+  items.forEach((it, i) => {
+    const row = document.createElement('div');
+    row.className = 'item';
+
+    const img = document.createElement('img');
+    img.src = it.thumb;
+    img.onclick = () => showFull(it.full);
+
+    const mid = document.createElement('div');
+    mid.className = 'mid';
+    mid.innerHTML = `<div class="idx">#${i + 1}</div>`;
+    const input = document.createElement('input');
+    input.className = 'price-input';
+    input.type = 'number';
+    input.inputMode = 'decimal';
+    input.placeholder = '输入价格';
+    input.value = it.price || '';
+    input.oninput = () => { it.price = parseFloat(input.value) || 0; updateTotal(); };
+    mid.appendChild(input);
+
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '×';
+    del.onclick = () => {
+      URL.revokeObjectURL(it.thumb);
+      URL.revokeObjectURL(it.full);
+      items.splice(i, 1);
+      render();
+    };
+
+    row.append(img, mid, del);
+    listEl.appendChild(row);
+  });
+  updateTotal();
+}
+
+function updateTotal() {
+  const sum = items.reduce((s, it) => s + it.price, 0);
+  totalEl.textContent = `总计 ¥${sum.toFixed(2)}`;
+}
+
+function showFull(src) {
+  viewer.querySelector('img').src = src;
+  viewer.style.display = 'flex';
+}
+viewer.onclick = () => { viewer.style.display = 'none'; };
+</script>
+</body>
+</html>
