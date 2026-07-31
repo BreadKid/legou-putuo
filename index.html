@@ -88,9 +88,9 @@
   </div>
   <div id="summaryRow">
     <div class="left">
-      <div id="gross">货值 ¥0.00</div>
-      <div id="net">实付 ¥0.00</div>
+      <div id="gross">原价 ¥0.00</div>
       <div id="save">共省 ¥0.00</div>
+      <div id="net">实付 ¥0.00</div>
     </div>
     <button id="addBtn">＋ 拍照</button>
   </div>
@@ -342,7 +342,7 @@ function updateSummary() {
   const gross = groups.reduce((a, g) => a + g.amount, 0);
   const save  = groups.reduce((a, g) => a + discountOf(g.amount), 0);
   const net   = gross - save;
-  document.getElementById('gross').textContent = `货值 ¥${gross.toFixed(2)}`;
+  document.getElementById('gross').textContent = `原价 ¥${gross.toFixed(2)}`;
   document.getElementById('save').textContent  = `共省 ¥${save.toFixed(2)}`;
   document.getElementById('net').textContent   = `实付 ¥${net.toFixed(2)}`;
 }
