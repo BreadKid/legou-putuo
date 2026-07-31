@@ -195,34 +195,25 @@ function computeGroups(units, people) {
   units.sort((a, b) => b.price - a.price);
   if (!units.length) return [];
 
-  // --- Step 1: Best Fit - 最小化 |after - 300| ---
-  const groups = [];
+  // --- Step 1: LPT 均摊到 people 个组 ---
+  const groups = Array.from({ length: people }, () => ({ amount: 0, members: new Map() }));
   for (const u of units) {
-    let bestGi = -1, bestScore = Infinity;
-    for (let i = 0; i < groups.length; i++) {
-      if (groups[i].sealed) continue;
-      const score = Math.abs(groups[i].amount + u.price - 300);
-      if (score < bestScore) { bestScore = score; bestGi = i; }
+    // 找当前金额最小的组
+    let minGi = 0;
+    for (let i = 1; i < groups.length; i++) {
+      if (groups[i].amount < groups[minGi].amount) minGi = i;
     }
-    const newScore = Math.abs(u.price - 300) + 0.5;
-    if (newScore < bestScore) {
-      groups.push({ amount: u.price, members: new Map([[u.id, 1]]), sealed: u.price >= 300 });
-    } else {
-      const g = groups[bestGi];
-      g.amount += u.price;
-      g.members.set(u.id, (g.members.get(u.id) || 0) + 1);
-      if (g.amount >= 300) g.sealed = true;
-    }
+    groups[minGi].amount += u.price;
+    groups[minGi].members.set(u.id, (groups[minGi].members.get(u.id) || 0) + 1);
   }
 
-  // --- Step 2: 尾组清理 (<100 拆掉均摊) ---
+  // --- Step 2: 尾组清理 (<100 拆掉, 单件 LPT 均摊到 >=100 的组) ---
   const tails = groups.filter(g => g.amount < 100);
   const keep  = groups.filter(g => g.amount >= 100);
   if (tails.length && keep.length) {
     const spill = [];
     for (const t of tails) {
       for (const [id, cnt] of t.members) {
-        // 从 units 中找回该 id 的价格 (取第一条)
         const price = units.find(u => u.id === id).price;
         for (let k = 0; k < cnt; k++) spill.push({ id, price });
       }
@@ -234,29 +225,21 @@ function computeGroups(units, people) {
       minG.amount += u.price;
       minG.members.set(u.id, (minG.members.get(u.id) || 0) + 1);
     }
+  } else if (tails.length > 1) {
+    // 无 keep 组时, 合并所有尾组为一个
+    const merged = { amount: 0, members: new Map() };
+    for (const t of tails) {
+      merged.amount += t.amount;
+      for (const [id, cnt] of t.members) {
+        merged.members.set(id, (merged.members.get(id) || 0) + cnt);
+      }
+    }
+    return [merged];
   }
   let result = keep.length ? keep : tails;
 
-  // --- Step 3: people 上限 ---
-  while (result.length > people && result.length > 1) {
-    let minGi = 0;
-    for (let i = 1; i < result.length; i++) {
-      if (result[i].amount < result[minGi].amount) minGi = i;
-    }
-    const removed = result.splice(minGi, 1)[0];
-    const spill = [];
-    for (const [id, cnt] of removed.members) {
-      const price = units.find(u => u.id === id).price;
-      for (let k = 0; k < cnt; k++) spill.push({ id, price });
-    }
-    spill.sort((a, b) => b.price - a.price);
-    for (const u of spill) {
-      let minG = result[0];
-      for (const g of result) if (g.amount < minG.amount) minG = g;
-      minG.amount += u.price;
-      minG.members.set(u.id, (minG.members.get(u.id) || 0) + 1);
-    }
-  }
+  // --- Step 3: 去空组 ---
+  result = result.filter(g => g.amount > 0 || g.members.size > 0);
   return result;
 }
 
@@ -447,6 +430,7 @@ window.runTests = () => {
     ['100x10',    [[100,10]],         5, 150, 1000],
     ['100x2+200+350 p=2', [[100,2],[200,1],[350,1]], 2, 90, 750],
     ['未填价跳过', [[0,5],[300,1]],   5, 45, 300],
+    ['均分平衡 [99.8*4,56.9*4] p=2', [[99.8,4],[56.9,4]], 2, 90, 626.8],
   ];
 
   let pass = 0, fail = 0;
