@@ -415,50 +415,6 @@ function jumpToItem(i) {
 }
 
 render();
-
-// ---- 单元测试 (浏览器控制台执行 runTests()) ----
-// 直接调纯函数 computeGroups, 不碰全局状态
-window.runTests = () => {
-  const cases = [
-    // [name, priceQtyPairs, people, expectedSave, expectedGross]
-    ['反例 [238,238,65,49,49,99] p=6', [[238,2],[65,1],[49,2],[99,1]], 6, 90, 738],
-    ['反例 [238,238,65,49,49,99] p=2', [[238,2],[65,1],[49,2],[99,1]], 2, 90, 738],
-    ['600 p=2',   [[300,1],[300,1]],  2, 90, 600],
-    ['350x3 p=2', [[350,3]],          2, 90, 1050],
-    ['80x5',      [[80,5]],           5, 45, 400],
-    ['280+50',    [[280,1],[50,1]],   5, 45, 330],
-    ['100x10',    [[100,10]],         5, 150, 1000],
-    ['100x2+200+350 p=2', [[100,2],[200,1],[350,1]], 2, 90, 750],
-    ['未填价跳过', [[0,5],[300,1]],   5, 45, 300],
-    ['均分平衡 [99.8*4,56.9*4] p=2', [[99.8,4],[56.9,4]], 2, 90, 626.8],
-  ];
-
-  let pass = 0, fail = 0;
-  console.log('=== 分组算法单元测试 ===\n');
-  for (const [name, pairs, p, expSave, expGross] of cases) {
-    // 展开为单件 units, 跳过 price<=0
-    const units = [];
-    pairs.forEach(([price, qty], id) => {
-      if (price > 0) for (let k = 0; k < qty; k++) units.push({ id, price });
-    });
-    const groups = computeGroups(units, p);
-    const save = groups.reduce((a, g) => a + discountOf(g.amount), 0);
-    const gross = pairs.reduce((s, [price, qty]) => s + (price > 0 ? price * qty : 0), 0);
-    const ok = save === expSave && gross === expGross;
-    console.log(`${ok ? '✅' : '❌'} ${name}`);
-    if (!ok) {
-      console.log(`   期望 共省=${expSave} 原价=${expGross}`);
-      console.log(`   实际 共省=${save} 原价=${gross}`);
-      fail++;
-    } else {
-      console.log(`   共省=${save} 组数=${groups.length}`);
-      groups.forEach((g, i) => console.log(`   组${i+1}: ¥${g.amount.toFixed(2)}`));
-      pass++;
-    }
-  }
-  console.log(`\n${pass} 通过, ${fail} 失败`);
-  return { pass, fail };
-};
 </script>
 </body>
 </html>
