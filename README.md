@@ -1,4 +1,4 @@
-# 乐购普陀优惠计算器-离线用
+# 乐购普陀自动分组计算器-离线用
 
 > 几个人去买，自动划分商品凑满每人优惠额度，最大化省钱。
 
@@ -6,7 +6,7 @@
 
 ---
 
-## 快速上手
+## 快速使用
 
 浏览器打开 [legouputuo.breadykid.com](https://legouputuo.breadykid.com)，手机 Chrome/Safari 均可。
 
