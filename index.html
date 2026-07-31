@@ -330,7 +330,7 @@ function renderGroups() {
       gm.className = 'gm';
       const line = it.price * count;
       gm.innerHTML = `<div class="gidx">#${idx + 1}</div>
-                      <div class="gp">¥${it.price.toFixed(2)} × ${count}（本组）</div>`;
+                      <div class="gp">¥${it.price.toFixed(2)} × ${count}</div>`;
       const gt = document.createElement('div');
       gt.className = 'gt';
       gt.textContent = `¥${line.toFixed(2)}`;
