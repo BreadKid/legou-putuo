@@ -6,8 +6,32 @@
 <title>山姆羊毛清单</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, "PingFang SC", sans-serif; background: #f5f5f5; padding-bottom: 120px; }
-  #list { padding: 12px; }
+  body { font-family: -apple-system, "PingFang SC", sans-serif; background: #f5f5f5; padding-bottom: 140px; }
+  #groups, #list { padding: 0 12px; }
+  #groups { margin: 10px 0 14px; }
+  .group { background: #fff; border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+  .g-head { padding: 12px 14px; display: flex; align-items: center; gap: 8px;
+            font-size: 15px; cursor: pointer; }
+  .g-head .label { font-weight: 600; }
+  .g-head .stat { flex: 1; color: #666; font-size: 13px; }
+  .g-head .warn { color: #d97706; font-size: 12px; }
+  .g-head .bad  { color: #dc2626; font-size: 12px; }
+  .g-head .ok   { color: #059669; font-size: 12px; }
+  .g-head .arrow { color: #bbb; font-size: 12px; transition: transform .2s; }
+  .group.open .arrow { transform: rotate(90deg); }
+  .g-body { display: none; border-top: 1px solid #f0f0f0; }
+  .group.open .g-body { display: block; }
+  .g-row { display: flex; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f5f5f5;
+           align-items: center; font-size: 14px; }
+  .g-row:last-child { border-bottom: none; }
+  .g-row img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; cursor: zoom-in; }
+  .g-row .gm { flex: 1; min-width: 0; }
+  .g-row .gidx { font-size: 11px; color: #999; }
+  .g-row .gp { color: #333; }
+  .g-row .gt { font-weight: 600; }
+
+  #listHeader { display: flex; align-items: center; gap: 10px; padding: 0 12px; margin-bottom: 8px; }
+  #listHeader .t { flex: 1; font-size: 14px; color: #666; }
   .item { display: flex; gap: 10px; background: #fff; border-radius: 10px;
           padding: 10px; margin-bottom: 10px; align-items: center; }
   .item img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; flex-shrink: 0; cursor: zoom-in; }
@@ -19,15 +43,26 @@
   .qty button { width: 32px; height: 32px; border: 1px solid #ddd; border-radius: 6px;
                 background: #f7f7f7; font-size: 18px; line-height: 1; }
   .qty .n { min-width: 28px; text-align: center; font-size: 17px; font-weight: 600; }
+  .badge { margin-top: 6px; font-size: 12px; color: #576b95; background: #eef1f6;
+           padding: 3px 10px; border-radius: 10px; border: 1px solid #dde3ee; }
   .del { flex-shrink: 0; width: 36px; height: 36px; border: none; border-radius: 50%;
          background: #ff3b30; color: #fff; font-size: 18px; }
+
   #bottom { position: fixed; left: 0; right: 0; bottom: 0; background: #fff;
-            border-top: 1px solid #e5e5e5; padding: 12px 16px;
-            display: flex; align-items: center; gap: 14px; }
-  #total { flex: 1; font-size: 20px; font-weight: 600; }
+            border-top: 1px solid #e5e5e5; padding: 10px 16px 14px;
+            display: flex; flex-direction: column; gap: 8px; }
+  #people { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #666; }
+  #people button { width: 28px; height: 28px; border: 1px solid #ddd; border-radius: 6px;
+                   background: #f7f7f7; font-size: 16px; line-height: 1; }
+  #people .n { min-width: 20px; text-align: center; font-weight: 600; }
+  #summaryRow { display: flex; align-items: flex-end; gap: 12px; }
+  #summaryRow .left { flex: 1; min-width: 0; }
+  #gross { font-size: 13px; color: #999; }
+  #net   { font-size: 20px; font-weight: 700; }
+  #save  { font-size: 13px; color: #059669; }
   #addBtn { background: #07c160; color: #fff; border: none; border-radius: 8px;
-            font-size: 18px; padding: 12px 24px; }
-  #empty { text-align: center; color: #aaa; margin-top: 60px; font-size: 15px; }
+            font-size: 18px; padding: 10px 22px; }
+  #empty { text-align: center; color: #aaa; margin-top: 40px; font-size: 15px; }
   #viewer { position: fixed; inset: 0; background: rgba(0,0,0,.9); display: none;
             align-items: center; justify-content: center; z-index: 10; }
   #viewer img { max-width: 100%; max-height: 100%; }
@@ -35,30 +70,63 @@
 </head>
 <body>
 
+<div id="groups"></div>
+
+<div id="listHeader"><span class="t">总列表（价格/数量/归组在此修改）</span></div>
 <div id="list"></div>
 <div id="empty">点底部按钮拍照添加商品</div>
 
 <div id="bottom">
-  <div id="total">总计 ¥0.00</div>
-  <button id="addBtn">＋ 拍照</button>
+  <div id="people">
+    人数（优惠额度）
+    <button id="pMinus">−</button>
+    <span class="n" id="pNum">1</span>
+    <button id="pPlus">＋</button>
+  </div>
+  <div id="summaryRow">
+    <div class="left">
+      <div id="gross">货值 ¥0.00</div>
+      <div id="net">实付 ¥0.00</div>
+      <div id="save">共省 ¥0.00</div>
+    </div>
+    <button id="addBtn">＋ 拍照</button>
+  </div>
 </div>
 <input type="file" id="camera" accept="image/*" capture="environment" hidden>
 
 <div id="viewer"><img alt=""></div>
 
 <script>
-const listEl  = document.getElementById('list');
-const emptyEl = document.getElementById('empty');
-const totalEl = document.getElementById('total');
-const camera  = document.getElementById('camera');
-const viewer  = document.getElementById('viewer');
+const groupsEl = document.getElementById('groups');
+const listEl   = document.getElementById('list');
+const emptyEl  = document.getElementById('empty');
+const camera   = document.getElementById('camera');
+const viewer   = document.getElementById('viewer');
+const pNumEl   = document.getElementById('pNum');
 
-// 拍照压缩到最长边 1600px, JPEG 0.8 —— 原图 3-5MB, 压完 ~100KB, 防爆内存
 const MAX_EDGE = 1600, QUALITY = 0.8;
 
-let items = []; // {thumb, full, price, qty}
+// people: 可用优惠额度（几张会员卡/几人次）
+// items[]: {thumb, full, price, qty, group ∈ 1..people}
+let people = 1;
+let items = [];
+let openGroups = new Set(); // 记住哪些组面板展开着
 
 document.getElementById('addBtn').onclick = () => camera.click();
+document.getElementById('pMinus').onclick = () => setPeople(people - 1);
+document.getElementById('pPlus').onclick  = () => setPeople(people + 1);
+
+function setPeople(n) {
+  if (n < 1) return;
+  // 不能减到比"当前有商品的最大组号"还小
+  const maxUsed = items.reduce((m, it) => Math.max(m, it.group), 0);
+  if (n < maxUsed) {
+    alert(`组 ${maxUsed} 还有商品，先在总列表把它们挪走`);
+    return;
+  }
+  people = n;
+  render();
+}
 
 camera.onchange = async () => {
   const file = camera.files[0];
@@ -67,12 +135,10 @@ camera.onchange = async () => {
   const img = await loadImage(file);
   const w = img.naturalWidth, h = img.naturalHeight;
   const scale = Math.min(1, MAX_EDGE / Math.max(w, h));
-  // full 尺寸: 点开大图查看
   const full = blobUrl(img, w * scale, h * scale, QUALITY);
-  // thumb: 列表缩略图, 300px 足够
   const tScale = Math.min(scale, 300 / Math.max(w, h));
   const thumb = blobUrl(img, w * tScale, h * tScale, 0.7);
-  items.push({ thumb, full, price: 0, qty: 1 });
+  items.push({ thumb, full, price: 0, qty: 1, group: 1 });
   render();
 };
 
@@ -102,8 +168,100 @@ function dataURItoBlob(dataURI) {
   return new Blob([arr], { type: mime });
 }
 
+// 每组优惠额: <100 → 0; 100-199 → 15; 200-299 → 30; ≥300 → 45
+function discountOf(amount) {
+  if (amount >= 300) return 45;
+  if (amount >= 200) return 30;
+  if (amount >= 100) return 15;
+  return 0;
+}
+
+function groupTotals() {
+  const sums = new Array(people).fill(0);
+  const counts = new Array(people).fill(0);
+  for (const it of items) {
+    sums[it.group - 1] += it.price * it.qty;
+    counts[it.group - 1] += it.qty;
+  }
+  return { sums, counts };
+}
+
 function render() {
+  pNumEl.textContent = people;
   emptyEl.style.display = items.length ? 'none' : '';
+  renderGroups();
+  renderList();
+  updateSummary();
+}
+
+function renderGroups() {
+  const { sums, counts } = groupTotals();
+  groupsEl.innerHTML = '';
+  for (let g = 1; g <= people; g++) {
+    const amount = sums[g - 1];
+    const cnt    = counts[g - 1];
+    const disc   = discountOf(amount);
+    const net    = amount - disc;
+
+    const box = document.createElement('div');
+    box.className = 'group' + (openGroups.has(g) ? ' open' : '');
+
+    const head = document.createElement('div');
+    head.className = 'g-head';
+    let statusCls, statusTxt;
+    if (amount >= 300)     { statusCls = 'ok';   statusTxt = `减 ¥${disc}（已满档）`; }
+    else if (amount >= 100){ statusCls = 'ok';   statusTxt = `减 ¥${disc}`; }
+    else if (amount > 0)   { statusCls = 'warn'; statusTxt = `差 ¥${(100 - amount).toFixed(2)} 到 100，无优惠`; }
+    else                   { statusCls = 'warn'; statusTxt = '空'; }
+    head.innerHTML = `
+      <span class="label">组 ${g}</span>
+      <span class="stat">${cnt} 件 · 小计 ¥${amount.toFixed(2)} · 实付 ¥${net.toFixed(2)}</span>
+      <span class="${statusCls}">${statusTxt}</span>
+      <span class="arrow">▶</span>`;
+    if (amount > 300) {
+      const warn = document.createElement('span');
+      warn.className = 'bad';
+      warn.textContent = `超 ¥${(amount - 300).toFixed(2)} 无优惠`;
+      head.insertBefore(warn, head.lastElementChild);
+    }
+    head.onclick = () => {
+      openGroups.has(g) ? openGroups.delete(g) : openGroups.add(g);
+      box.classList.toggle('open');
+    };
+
+    const body = document.createElement('div');
+    body.className = 'g-body';
+    items.forEach((it) => {
+      if (it.group !== g) return;
+      const row = document.createElement('div');
+      row.className = 'g-row';
+      const img = document.createElement('img');
+      img.src = it.thumb;
+      img.onclick = () => showFull(it.full);
+      const gm = document.createElement('div');
+      gm.className = 'gm';
+      const line = it.price * it.qty;
+      gm.innerHTML = `<div class="gidx">#${items.indexOf(it) + 1}</div>
+                      <div class="gp">¥${it.price.toFixed(2)} × ${it.qty}</div>`;
+      const gt = document.createElement('div');
+      gt.className = 'gt';
+      gt.textContent = `¥${line.toFixed(2)}`;
+      row.append(img, gm, gt);
+      body.appendChild(row);
+    });
+    if (!body.children.length) {
+      const r = document.createElement('div');
+      r.className = 'g-row';
+      r.innerHTML = '<div class="gidx" style="color:#bbb">暂无商品，回总列表给商品点"组 i"切换归组</div>';
+      body.appendChild(r);
+    }
+
+    box.append(head, body);
+    groupsEl.appendChild(box);
+  }
+}
+
+function renderList() {
   listEl.innerHTML = '';
   items.forEach((it, i) => {
     const row = document.createElement('div');
@@ -122,7 +280,7 @@ function render() {
     input.inputMode = 'decimal';
     input.placeholder = '输入价格';
     input.value = it.price || '';
-    input.oninput = () => { it.price = parseFloat(input.value) || 0; updateTotal(); };
+    input.oninput = () => { it.price = parseFloat(input.value) || 0; refreshNumbers(); };
     mid.appendChild(input);
 
     const qty = document.createElement('div');
@@ -134,12 +292,22 @@ function render() {
     n.textContent = it.qty;
     const plus = document.createElement('button');
     plus.textContent = '+';
-    minus.onclick = () => {
-      if (it.qty > 1) { it.qty--; n.textContent = it.qty; updateTotal(); }
-    };
-    plus.onclick = () => { it.qty++; n.textContent = it.qty; updateTotal(); };
+    minus.onclick = () => { if (it.qty > 1) { it.qty--; n.textContent = it.qty; refreshNumbers(); } };
+    plus.onclick  = () => { it.qty++; n.textContent = it.qty; refreshNumbers(); };
     qty.append(minus, n, plus);
     mid.appendChild(qty);
+
+    if (people > 1) {
+      const badge = document.createElement('button');
+      badge.className = 'badge';
+      badge.textContent = `组 ${it.group}`;
+      badge.onclick = () => {
+        it.group = it.group >= people ? 1 : it.group + 1;
+        badge.textContent = `组 ${it.group}`;
+        refreshNumbers();
+      };
+      mid.appendChild(badge);
+    }
 
     const del = document.createElement('button');
     del.className = 'del';
@@ -154,12 +322,22 @@ function render() {
     row.append(img, mid, del);
     listEl.appendChild(row);
   });
-  updateTotal();
 }
 
-function updateTotal() {
-  const sum = items.reduce((s, it) => s + it.price * it.qty, 0);
-  totalEl.textContent = `总计 ¥${sum.toFixed(2)}`;
+// 轻量刷新: 只更新组面板 + 底部汇总, 不重建总列表 DOM (避免输入框丢焦点)
+function refreshNumbers() {
+  renderGroups();
+  updateSummary();
+}
+
+function updateSummary() {
+  const { sums } = groupTotals();
+  const gross = sums.reduce((a, b) => a + b, 0);
+  const save  = sums.reduce((a, b) => a + discountOf(b), 0);
+  const net   = gross - save;
+  document.getElementById('gross').textContent = `货值 ¥${gross.toFixed(2)}`;
+  document.getElementById('save').textContent  = `共省 ¥${save.toFixed(2)}`;
+  document.getElementById('net').textContent   = `实付 ¥${net.toFixed(2)}`;
 }
 
 function showFull(src) {
@@ -167,6 +345,8 @@ function showFull(src) {
   viewer.style.display = 'flex';
 }
 viewer.onclick = () => { viewer.style.display = 'none'; };
+
+render();
 </script>
 </body>
 </html>
