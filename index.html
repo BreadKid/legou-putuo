@@ -587,6 +587,7 @@
 
     function renderGroups() {
       groupsEl.innerHTML = '';
+      if (!lastGroups) return;
       lastGroups.forEach((g, gi) => {
         const amount = g.amount;
         const disc = discountOf(amount);
