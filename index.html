@@ -434,6 +434,67 @@ function jumpToItem(i) {
 }
 
 render();
+
+// ---- 单元测试 (浏览器控制台执行 runTests()) ----
+window.runTests = () => {
+  const savedItems = items;
+  const savedPeople = people;
+
+  function discountOf(a) {
+    if (a >= 300) return 45;
+    if (a >= 200) return 30;
+    if (a >= 100) return 15;
+    return 0;
+  }
+
+  // 用独立数据跑分组, 返回 {groups, save, gross}
+  function testAutoGroup(priceQtyPairs, p) {
+    items = [];
+    priceQtyPairs.forEach(([price, qty]) => {
+      items.push({ price, qty, thumb: null, full: null });
+    });
+    people = p;
+    const groups = autoGroup();
+    const save = groups.reduce((a, g) => a + discountOf(g.amount), 0);
+    const gross = priceQtyPairs.reduce((s, [price, qty]) => s + (price > 0 ? price * qty : 0), 0);
+    return { groups, save, gross };
+  }
+
+  const cases = [
+    // [name, priceQtyPairs, people, expectedSave, expectedGross]
+    ['反例 [238,238,65,49,49,99] people=6', [[238,2],[65,1],[49,2],[99,1]], 6, 90, 738],
+    ['反例 [238,238,65,49,49,99] people=2', [[238,2],[65,1],[49,2],[99,1]], 2, 90, 738],
+    ['600 people=2',   [[300,1],[300,1]],  2, 90, 600],
+    ['350x3 people=2', [[350,3]],          2, 90, 1050],
+    ['80x5',           [[80,5]],           5, 45, 400],
+    ['280+50',         [[280,1],[50,1]],   5, 45, 330],
+    ['100x10',         [[100,10]],         5, 150, 1000],
+    ['100x2+200+350 p=2', [[100,2],[200,1],[350,1]], 2, 90, 750],
+    ['未填价跳过',      [[0,5],[300,1]],    5, 45, 300],
+  ];
+
+  let pass = 0, fail = 0;
+  console.log('=== 分组算法单元测试 ===\n');
+  for (const [name, pairs, p, expSave, expGross] of cases) {
+    const { groups, save, gross } = testAutoGroup(pairs, p);
+    const ok = save === expSave && gross === expGross;
+    console.log(`${ok ? '✅' : '❌'} ${name}`);
+    if (!ok) {
+      console.log(`   期望 共省=${expSave} 原价=${expGross}`);
+      console.log(`   实际 共省=${save} 原价=${gross}`);
+      fail++;
+    } else {
+      console.log(`   共省=${save} 组数=${groups.length}`);
+      groups.forEach((g, i) => console.log(`   组${i+1}: ¥${g.amount.toFixed(2)}`));
+      pass++;
+    }
+  }
+  console.log(`\n${pass} 通过, ${fail} 失败`);
+
+  items = savedItems;
+  people = savedPeople;
+  return { pass, fail };
+};
 </script>
 </body>
 </html>
