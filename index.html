@@ -65,6 +65,8 @@
   #save  { font-size: 13px; color: #059669; }
   #addBtn { background: #07c160; color: #fff; border: none; border-radius: 8px;
             font-size: 18px; padding: 10px 22px; }
+  #groupBtn { background: #576b95; color: #fff; border: none; border-radius: 8px;
+              font-size: 18px; padding: 10px 22px; }
   #empty { text-align: center; color: #aaa; margin-top: 40px; font-size: 15px; }
   #viewer { position: fixed; inset: 0; background: rgba(0,0,0,.9); display: none;
             align-items: center; justify-content: center; z-index: 10; }
@@ -93,6 +95,7 @@
       <div id="net">实付 ¥0.00</div>
     </div>
     <button id="addBtn">＋ 拍照</button>
+    <button id="groupBtn">分组</button>
   </div>
 </div>
 <input type="file" id="camera" accept="image/*" capture="environment" hidden>
@@ -112,16 +115,29 @@ const MAX_EDGE = 1600, QUALITY = 0.8;
 let people = 1;
 let items = []; // {thumb, full, price, qty}
 let openGroups = new Set();
+let lastGroups = null; // 上次分组结果缓存, null = 还没分过/已失效
 
 document.getElementById('addBtn').onclick = () => camera.click();
 document.getElementById('pMinus').onclick = () => setPeople(people - 1);
 document.getElementById('pPlus').onclick  = () => setPeople(people + 1);
+document.getElementById('groupBtn').onclick = () => runGrouping();
 
 function setPeople(n) {
   if (n < 1) return;
   people = n;
   openGroups.clear();
-  render();
+  pNumEl.textContent = people;
+  // people 改了分组就失效, 提示重新分组
+  lastGroups = null;
+  renderGroups();
+  updateSummary();
+}
+
+// 点"分组"按钮: 跑算法并刷新组面板 + 底部共省/实付
+function runGrouping() {
+  lastGroups = autoGroup();
+  renderGroups();
+  updateSummary();
 }
 
 camera.onchange = async () => {
@@ -135,6 +151,7 @@ camera.onchange = async () => {
   const tScale = Math.min(scale, 300 / Math.max(w, h));
   const thumb = blobUrl(img, w * tScale, h * tScale, 0.7);
   items.push({ thumb, full, price: 0, qty: 1 });
+  lastGroups = null;
   render();
 };
 
@@ -171,42 +188,47 @@ function discountOf(amount) {
   return 0;
 }
 
-// 自动分组: 贪心"单人优惠最大化"
-// 单件展开, 按价从大到小, 当前组装到 ≥300 就封箱开新组;
-// 否则若加入能让组升档或保持在 <300 内继续逼近, 就放
-// 返回: 数组 of 组, 每组是 [{itemIdx, count}]
+// 自动分组: 贪心"单人优惠最大化", 受 people 上限约束
+// 单件展开, 按价从大到小, 当前组装到 ≥300 就封箱开新组
+// price<=0 的商品不参与分组
+// 返回: 数组 of 组, 每组是 [{amount, members: Map<itemIdx, count>}]
 function autoGroup() {
-  // 展开单件
+  // 展开单件, 跳过未填价
   const units = [];
   items.forEach((it, idx) => {
+    if (!(it.price > 0)) return;
     for (let k = 0; k < it.qty; k++) units.push({ idx, price: it.price });
   });
   units.sort((a, b) => b.price - a.price);
 
-  const groups = []; // [{amount, members: Map<itemIdx, count>}]
+  const groups = [];
   let cur = { amount: 0, members: new Map() };
 
   for (const u of units) {
     const newAmt = cur.amount + u.price;
-    // 规则: 放进去让组升档 (discount 增加) 或者还没满 300 且不会跳到 >300
-    // 简化: 只要 newAmt <= 300 就放; 如果 newAmt > 300:
-    //   若 cur.amount 已 >= 300 -> 封箱开新组, u 进新组
-    //   否则 (cur.amount < 300, newAmt > 300) -> 放, 满档封箱
     if (cur.amount >= 300) {
       groups.push(cur);
       cur = { amount: u.price, members: new Map([[u.idx, 1]]) };
       continue;
     }
-    if (newAmt <= 300) {
-      cur.amount = newAmt;
-      cur.members.set(u.idx, (cur.members.get(u.idx) || 0) + 1);
-    } else {
-      // newAmt > 300, cur.amount < 300: 放进去满档 (减 45)
-      cur.amount = newAmt;
-      cur.members.set(u.idx, (cur.members.get(u.idx) || 0) + 1);
-    }
+    cur.amount = newAmt;
+    cur.members.set(u.idx, (cur.members.get(u.idx) || 0) + 1);
   }
   if (cur.amount > 0 || cur.members.size > 0) groups.push(cur);
+
+  // people 上限: 超出部分的组, 商品并回前 people 组里货值最小的
+  while (groups.length > people && groups.length > 1) {
+    const tail = groups.pop();
+    let minGi = 0;
+    for (let i = 1; i < groups.length; i++) {
+      if (groups[i].amount < groups[minGi].amount) minGi = i;
+    }
+    const target = groups[minGi];
+    target.amount += tail.amount;
+    for (const [idx, cnt] of tail.members) {
+      target.members.set(idx, (target.members.get(idx) || 0) + cnt);
+    }
+  }
   return groups;
 }
 
@@ -219,9 +241,12 @@ function render() {
 }
 
 function renderGroups() {
-  const groups = autoGroup();
   groupsEl.innerHTML = '';
-  groups.forEach((g, gi) => {
+  if (!lastGroups) {
+    groupsEl.innerHTML = '<div style="text-align:center;color:#bbb;padding:20px 0;font-size:14px">点下方"分组"按钮生成分组</div>';
+    return;
+  }
+  lastGroups.forEach((g, gi) => {
     const amount = g.amount;
     const disc   = discountOf(amount);
     const totalQty = [...g.members.values()].reduce((a, b) => a + b, 0);
@@ -299,7 +324,7 @@ function renderList() {
     input.inputMode = 'decimal';
     input.placeholder = '输入价格';
     input.value = it.price || '';
-    input.oninput = () => { it.price = parseFloat(input.value) || 0; refreshNumbers(); };
+    input.oninput = () => { it.price = parseFloat(input.value) || 0; invalidateGroups(); };
     mid.appendChild(input);
 
     const qty = document.createElement('div');
@@ -311,8 +336,8 @@ function renderList() {
     n.textContent = it.qty;
     const plus = document.createElement('button');
     plus.textContent = '+';
-    minus.onclick = () => { if (it.qty > 1) { it.qty--; n.textContent = it.qty; refreshNumbers(); } };
-    plus.onclick  = () => { it.qty++; n.textContent = it.qty; refreshNumbers(); };
+    minus.onclick = () => { if (it.qty > 1) { it.qty--; n.textContent = it.qty; invalidateGroups(); } };
+    plus.onclick  = () => { it.qty++; n.textContent = it.qty; invalidateGroups(); };
     qty.append(minus, n, plus);
     mid.appendChild(qty);
 
@@ -323,6 +348,7 @@ function renderList() {
       URL.revokeObjectURL(it.thumb);
       URL.revokeObjectURL(it.full);
       items.splice(i, 1);
+      lastGroups = null;
       render();
     };
 
@@ -331,19 +357,25 @@ function renderList() {
   });
 }
 
-function refreshNumbers() {
+// 编辑价格/数量后: 原价实时更新, 但分组失效, 共省/实付标为 stale
+function invalidateGroups() {
+  lastGroups = null;
   renderGroups();
   updateSummary();
 }
 
 function updateSummary() {
-  const groups = autoGroup();
-  const gross = groups.reduce((a, g) => a + g.amount, 0);
-  const save  = groups.reduce((a, g) => a + discountOf(g.amount), 0);
-  const net   = gross - save;
+  const gross = items.reduce((s, it) => s + (it.price > 0 ? it.price * it.qty : 0), 0);
   document.getElementById('gross').textContent = `原价 ¥${gross.toFixed(2)}`;
-  document.getElementById('save').textContent  = `共省 ¥${save.toFixed(2)}`;
-  document.getElementById('net').textContent   = `实付 ¥${net.toFixed(2)}`;
+  if (lastGroups) {
+    const save = lastGroups.reduce((a, g) => a + discountOf(g.amount), 0);
+    const net  = gross - save;
+    document.getElementById('save').textContent = `共省 ¥${save.toFixed(2)}`;
+    document.getElementById('net').textContent  = `实付 ¥${net.toFixed(2)}`;
+  } else {
+    document.getElementById('save').textContent = '共省 —（点分组计算）';
+    document.getElementById('net').textContent  = '实付 —';
+  }
 }
 
 function showFull(src) {
